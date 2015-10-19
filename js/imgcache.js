@@ -29,7 +29,7 @@ var ImgCache = {
             cacheClearSize: 0,                      /* size in MB that triggers cache clear on init, 0 to disable */
             headers: {},                            /* HTTP headers for the download requests -- e.g: headers: { 'Accept': 'application/jpg' } */
             skipURIencoding: false,                 /* enable if URIs are already encoded (skips call to sanitizeURI) */
-            useLru: false                           /* if we should keep track of usage of images in an lru */
+            useLru: false,                          /* if we should keep track of usage of images in an lru */
             maxLruSize: 0                           /* only allow the LRU to grow to this size, 0 to disable */
         },
         overridables: {
