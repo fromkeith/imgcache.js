@@ -28,7 +28,9 @@ var ImgCache = {
             usePersistentCache: true,               /* false = use temporary cache storage */
             cacheClearSize: 0,                      /* size in MB that triggers cache clear on init, 0 to disable */
             headers: {},                            /* HTTP headers for the download requests -- e.g: headers: { 'Accept': 'application/jpg' } */
-            skipURIencoding: false                  /* enable if URIs are already encoded (skips call to sanitizeURI) */
+            skipURIencoding: false,                 /* enable if URIs are already encoded (skips call to sanitizeURI) */
+            useLru: false                           /* if we should keep track of usage of images in an lru */
+            maxLruSize: 0                           /* only allow the LRU to grow to this size, 0 to disable */
         },
         overridables: {
             hash: function (s) {
@@ -471,6 +473,9 @@ var ImgCache = {
         if (!$element) {
             return;
         }
+        if (ImgCache.attributes.lru) {
+            ImgCache.attributes.lru.use(img_src);
+        }
 
         var filename = Helpers.URIGetFileName(img_src);
 
@@ -526,6 +531,92 @@ var ImgCache = {
         ImgCache.attributes.filesystem.root.getFile(Private.getCachedFilePath(img_src), {create: false}, _gotFileEntry, _fail);
     };
 
+    Private.initLru = function () {
+        var oldLruStr = window.localStorage['imagecache.js.lru'],
+            lru = {
+                data: {
+                    files: {},
+                    size: 0
+                    //head: undefined,
+                    //tail: undefined
+                }
+            };
+        if (oldLruStr !== undefined) {
+            lru.data = JSON.parse(oldLruStr);
+        }
+        function splitOutNode(what) {
+            // fix my prev node
+            if (lru.data.files[what].prev !== undefined) {
+                lru.data.files[lru.data.files[what].prev].next = lru.data.files[what].next;
+            } else {
+                // new head
+                lru.data.head = lru.data.files[what].next;
+            }
+            // fix my next node
+            if (lru.data.files[what].next !== undefined) {
+                lru.data.files[lru.data.files[what].next].prev = lru.data.files[what].prev;
+            } else {
+                // new tail
+                lru.data.tail = lru.data.files[what].prev;
+            }
+        }
+        function saveLru() {
+            // TODO: maybe not save this each time? don't know the cost of this stringify...
+            window.localStorage['imagecache.js.lru'] = JSON.stringify(lru.data);
+        }
+        lru.use = function (what) {
+            // create it if it doesn't exist yet
+            if (lru.data.files[what] === undefined) {
+                lru.data.files[what] = {
+                    //next: undefined,
+                    //prev: undefined
+                };
+                lru.data.size ++;
+            } else {
+                splitOutNode(what);
+            }
+            // fix me
+            lru.data.files[what].next = lru.data.head;
+            delete lru.data.files[what].prev;
+            // set the new head
+            lru.data.head = what;
+            if (lru.data.tail === undefined) {
+                lru.data.tail = what;
+            }
+            if (ImgCache.options.maxLruSize > 0 && lru.data.size > ImgCache.options.maxLruSize) {
+                // pop, remove the file and save the lru
+                ImgCache.removeFile(lru.pop());
+            } else {
+                saveLru();
+            }
+        };
+        lru.remove = function (what) {
+            if (lru.data.files[what] === undefined) {
+                return;
+            }
+            lru.data.size --;
+            splitOutNode(what);
+            saveLru();
+        };
+        lru.peek = function () {
+            return lru.data.tail;
+        };
+        lru.pop = function () {
+            if (lru.data.tail === undefined) {
+                return undefined;
+            }
+            lru.data.size --;
+            var toRet = lru.data.tail;
+            splitOutNode(toRet);
+            saveLru();
+            return toRet;
+        };
+        lru.size = function () {
+            return lru.data.size;
+        };
+        return lru;
+    };
+
     /****************************************************************************/
 
 
@@ -567,6 +658,9 @@ var ImgCache = {
             ImgCache.overridables.log('Failed to initialise LocalFileSystem ' + error.code, LOG_LEVEL_ERROR);
             if (error_callback) { error_callback(); }
         };
+        if (ImgCache.options.useLru) {
+            ImgCache.attributes.lru = Private.initLru();
+        }
         if (Helpers.isCordova()) {
             // PHONEGAP
             window.requestFileSystem(Helpers.getCordovaStorageType(ImgCache.options.usePersistentCache), 0, _gotFS, _fail);
@@ -615,6 +709,9 @@ var ImgCache = {
 
         if (!Private.isImgCacheLoaded() || !img_src) {
             return;
+        }
+        if (ImgCache.attributes.lru) {
+            ImgCache.attributes.lru.use(img_src);
         }
 
         img_src = Helpers.sanitizeURI(img_src);
@@ -673,6 +770,9 @@ var ImgCache = {
         if (!Private.isImgCacheLoaded() || !response_callback) {
             return;
         }
+        if (ImgCache.attributes.lru) {
+            ImgCache.attributes.lru.use(img_src);
+        }
 
         img_src = Helpers.sanitizeURI(img_src);
 
@@ -700,6 +800,9 @@ var ImgCache = {
             if (!entry) {
                 if (error_callback) { error_callback(img_src); }
             } else {
+                if (ImgCache.attributes.lru) {
+                    ImgCache.attributes.lru.use(img_src);
+                }
                 success_callback(img_src, Helpers.EntryGetURL(entry));
             }
         };
@@ -756,11 +859,27 @@ var ImgCache = {
         Private.loadCachedFile($img, img_url, Private.setNewImgPath, success_callback, error_callback);
     };
 
+    // resizes the LRU. the callbacks will be called once per file removed.
+    ImgCache.resizeLru = function (resizeTo, success_callback, error_callback) {
+        if (!Private.isImgCacheLoaded()) {
+            return;
+        }
+        if (!ImgCache.attributes.lru) {
+            return;
+        }
+        while (ImgCache.attributes.lru.size() > resizeTo) {
+            ImgCache.removeFile(ImgCache.attributes.lru.pop(), success_callback, error_callback);
+        }
+    }
+
     // clears the cache
     ImgCache.clearCache = function (success_callback, error_callback) {
 
         if (!Private.isImgCacheLoaded()) {
             return;
+        }
+        if (ImgCache.attributes.lru) {
+            ImgCache.attributes.lru.clear();
         }
 
         // delete cache dir completely
@@ -779,6 +898,10 @@ var ImgCache = {
     };
 
     ImgCache.removeFile = function (img_src, success_callback, error_callback) {
+
+        if (ImgCache.attributes.lru) {
+            ImgCache.attributes.lru.remove(img_src);
+        }
 
         img_src = Helpers.sanitizeURI(img_src);
 
