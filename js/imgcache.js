@@ -560,9 +560,15 @@ var ImgCache = {
                 lru.data.tail = lru.data.files[what].prev;
             }
         }
+        var lruChanged  = null;
         function saveLru() {
-            // TODO: maybe not save this each time? don't know the cost of this stringify...
-            window.localStorage['imagecache.js.lru'] = JSON.stringify(lru.data);
+            if (lruChanged) {
+                clearTimeout(lruChanged);
+            }
+            lruChanged = setTimeout(function () {
+                window.localStorage['imagecache.js.lru'] = JSON.stringify(lru.data);
+                lruChanged = null;
+            }, 100);
         }
         lru.use = function (what) {
             // create it if it doesn't exist yet
