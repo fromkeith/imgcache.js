@@ -19,6 +19,14 @@ This library works with Phonegap/Cordova (v >= 1.7), the supported platforms bei
 
 Most methods are **ASYNCHRONOUS** : use callbacks if required.
 
+## This Fork
+
+* Add in an LRU to track usage of images, so less used ones can get deleted first.
+* Delays load of cached image to sequential loads don't block the main thread.
+* Fixes a bug where the size of a file entry was not detected.
+* Only tested on Android and windows' chrome.
+
+
 Using imgcache.js
 =================
 
