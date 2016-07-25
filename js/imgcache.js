@@ -545,19 +545,23 @@ var ImgCache = {
             lru.data = JSON.parse(oldLruStr);
         }
         function splitOutNode(what) {
+            var me = lru.data.files[what];
+            if (me.prev === undefined && me.next === undefined) {
+                return;
+            }
             // fix my prev node
-            if (lru.data.files[what].prev !== undefined) {
-                lru.data.files[lru.data.files[what].prev].next = lru.data.files[what].next;
+            if (me.prev !== undefined) {
+                lru.data.files[me.prev].next = me.next;
             } else {
                 // new head
-                lru.data.head = lru.data.files[what].next;
+                lru.data.head = me.next;
             }
             // fix my next node
-            if (lru.data.files[what].next !== undefined) {
-                lru.data.files[lru.data.files[what].next].prev = lru.data.files[what].prev;
+            if (me.next !== undefined) {
+                lru.data.files[me.next].prev = me.prev;
             } else {
                 // new tail
-                lru.data.tail = lru.data.files[what].prev;
+                lru.data.tail = me.prev;
             }
         }
         var lruChanged  = null;
@@ -571,6 +575,10 @@ var ImgCache = {
             }, 100);
         }
         lru.use = function (what) {
+            console.log('use', what);
+            if (what === undefined) {
+                return;
+            }
             // create it if it doesn't exist yet
             if (lru.data.files[what] === undefined) {
                 lru.data.files[what] = {
@@ -584,6 +592,9 @@ var ImgCache = {
             // fix me
             lru.data.files[what].next = lru.data.head;
             delete lru.data.files[what].prev;
+            if (lru.data.head) {
+                lru.data.files[lru.data.head].prev = what;
+            }
             // set the new head
             lru.data.head = what;
             if (lru.data.tail === undefined) {
@@ -591,29 +602,36 @@ var ImgCache = {
             }
             if (ImgCache.options.maxLruSize > 0 && lru.data.size > ImgCache.options.maxLruSize) {
                 // pop, remove the file and save the lru
-                ImgCache.removeFile(lru.pop());
+                var i;
+                for (i = 0; i < ImgCache.options.maxLruSize / 4; i++) {
+                    ImgCache.removeFile(lru.pop());
+                }
             } else {
                 saveLru();
             }
         };
         lru.remove = function (what) {
+            console.log('remove', what);
             if (lru.data.files[what] === undefined) {
                 return;
             }
             lru.data.size --;
             splitOutNode(what);
+            delete lru.data.files[what];
             saveLru();
         };
         lru.peek = function () {
             return lru.data.tail;
         };
         lru.pop = function () {
+            console.log('pop', lru.data.tail);
             if (lru.data.tail === undefined) {
                 return undefined;
             }
             lru.data.size --;
             var toRet = lru.data.tail;
             splitOutNode(toRet);
+            delete lru.data.files[toRet];
             saveLru();
             return toRet;
         };
@@ -772,32 +790,35 @@ var ImgCache = {
     // Reminder: this is an asynchronous method!
     // Answer to the question comes in response_callback as the second argument (first being the path)
     ImgCache.getCachedFile = function (img_src, response_callback) {
-        // sanity check
-        if (!Private.isImgCacheLoaded() || !response_callback) {
-            return;
-        }
-        if (ImgCache.attributes.lru) {
-            ImgCache.attributes.lru.use(img_src);
-        }
-
-        img_src = Helpers.sanitizeURI(img_src);
-
-        var path = Private.getCachedFilePath(img_src);
-        if (Helpers.isCordovaAndroid()) {
-            // This hack is probably only used for older versions of Cordova
-            if (path.indexOf('file://') === 0) {
-                // issue #4 -- android cordova specific
-                path = path.substr(7);
+        // defer load so we don't block the main thread..
+        setTimeout(function () {
+            // sanity check
+            if (!Private.isImgCacheLoaded() || !response_callback) {
+                return;
             }
-        }
+            if (ImgCache.attributes.lru) {
+                ImgCache.attributes.lru.use(img_src);
+            }
 
-        // try to get the file entry: if it fails, there's no such file in the cache
-        ImgCache.attributes.filesystem.root.getFile(
-            path,
-            { create: false },
-            function (file_entry) { response_callback(img_src, file_entry); },
-            function () { response_callback(img_src, null); }
-        );
+            img_src = Helpers.sanitizeURI(img_src);
+
+            var path = Private.getCachedFilePath(img_src);
+            if (Helpers.isCordovaAndroid()) {
+                // This hack is probably only used for older versions of Cordova
+                if (path.indexOf('file://') === 0) {
+                    // issue #4 -- android cordova specific
+                    path = path.substr(7);
+                }
+            }
+
+            // try to get the file entry: if it fails, there's no such file in the cache
+            ImgCache.attributes.filesystem.root.getFile(
+                path,
+                { create: false },
+                function (file_entry) { response_callback(img_src, file_entry); },
+                function () { response_callback(img_src, null); }
+            );
+        });
     };
 
     // Returns the local url of a file already available in the cache
