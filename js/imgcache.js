@@ -532,18 +532,27 @@ var ImgCache = {
     };
 
     Private.initLru = function () {
-        var oldLruStr = window.localStorage['imagecache.js.lru'],
-            lru = {
+        var lru = {
                 data: {
                     files: {},
-                    size: 0
+                    size: 0,
+                    version: 1
                     //head: undefined,
                     //tail: undefined
                 }
             };
-        if (oldLruStr !== undefined) {
-            lru.data = JSON.parse(oldLruStr);
+        function restoreLru() {
+            var oldLruStr = window.localStorage['imagecache.js.lru'];
+            if (oldLruStr !== undefined) {
+                var parsedLruData = JSON.parse(oldLruStr);
+                if (!parsedLruData.version) {
+                    ImgCache.clearCache(function (){});
+                } else {
+                    lru.data = parsedLruData;
+                }
+            }
         }
+        restoreLru();
         function splitOutNode(what) {
             var me = lru.data.files[what];
             if (me.prev === undefined && me.next === undefined) {
@@ -575,7 +584,6 @@ var ImgCache = {
             }, 100);
         }
         lru.use = function (what) {
-            console.log('use', what);
             if (what === undefined) {
                 return;
             }
@@ -611,7 +619,6 @@ var ImgCache = {
             }
         };
         lru.remove = function (what) {
-            console.log('remove', what);
             if (lru.data.files[what] === undefined) {
                 return;
             }
@@ -624,7 +631,6 @@ var ImgCache = {
             return lru.data.tail;
         };
         lru.pop = function () {
-            console.log('pop', lru.data.tail);
             if (lru.data.tail === undefined) {
                 return undefined;
             }
@@ -657,6 +663,9 @@ var ImgCache = {
         ImgCache.overridables.log('ImgCache initialising', LOG_LEVEL_INFO);
 
         var _checkSize = function (callback) {
+            if (ImgCache.options.useLru) {
+                ImgCache.attributes.lru = Private.initLru();
+            }
             if (ImgCache.options.cacheClearSize > 0) {
                 var curSize = ImgCache.getCurrentSize();
                 if (curSize > (ImgCache.options.cacheClearSize * 1024 * 1024)) {
@@ -682,9 +691,6 @@ var ImgCache = {
             ImgCache.overridables.log('Failed to initialise LocalFileSystem ' + error.code, LOG_LEVEL_ERROR);
             if (error_callback) { error_callback(); }
         };
-        if (ImgCache.options.useLru) {
-            ImgCache.attributes.lru = Private.initLru();
-        }
         if (Helpers.isCordova()) {
             // PHONEGAP
             window.requestFileSystem(Helpers.getCordovaStorageType(ImgCache.options.usePersistentCache), 0, _gotFS, _fail);
@@ -748,7 +754,7 @@ var ImgCache = {
             filePath,
             function (entry) {
                 entry.getMetadata(function (metadata) {
-                    if (metadata && metadata.hasOwnProperty('size')) {
+                    if (metadata && metadata.size !== undefined) {
                         ImgCache.overridables.log('Cached file size: ' + metadata.size, LOG_LEVEL_INFO);
                         Private.setCurrentSize(ImgCache.getCurrentSize() + parseInt(metadata.size, 10));
                     } else {
