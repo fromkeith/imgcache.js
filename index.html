@@ -48,6 +48,10 @@
                 },
                 {
                     useDataURI: true
+                },
+                {
+                    useLru: true,
+                    maxLruSize: 10
                 }
             ];
 
@@ -61,7 +65,7 @@
                     return;
                 }
                 var regexp = /\((.+)\)/;
-                return regexp.exec(backgroundImageProperty)[1];
+                return regexp.exec(backgroundImageProperty)[1].replace(/"/g, '');
             };
 
             var getAppropriateElement = function (element) {
@@ -108,27 +112,43 @@
                     name: 'getCachedFile',
                     test: function (ok, nok) {
                         // expected result: failure
-                        ImgCache.getCachedFile($test_img.attr('src'), function (src, file_entry) { if (file_entry) { nok(); } else { ok(); } });
+                        ImgCache.getCachedFile($test_img.attr('src'), function (src, file_entry) {
+                            if (file_entry) {
+                                nok();
+                            } else {
+                                ok();
+                            }
+                        });
                     }
                 },
                 {
                     name: 'cacheFile',
                     test: function (ok, nok) {
+                        console.log('test-cacheFile');
                         ImgCache.cacheFile($test_img.attr('src'), ok, nok);
                     }
                 },
                 {
                     name: 'cacheBackground',
                     test: function (ok, nok) {
+                        console.log('test-cacheBackground');
                         ImgCache.cacheBackground(getAppropriateElement($test_div), ok, nok);
                     }
                 },
                 {
                     name: 'isCached',
                     test: function (ok, nok) {
+                        console.log('test-isCached');
                         var img_src = getBackgroundImageUrl($test_div);
                         if (img_src) {
-                            ImgCache.isCached(img_src, function (src, res) { if (res) { ok(); } else { nok(); }  });
+                            ImgCache.isCached(img_src, function (src, res) {
+                                console.log('test-isCached', img_src, src, res);
+                                if (res) {
+                                    ok();
+                                } else {
+                                    nok();
+                                }
+                            });
                         } else {
                             nok();
                         }
@@ -375,7 +395,7 @@
         #version { font-size: 1.2em; }
         #result { font-size: 1.5em; font-weight: bold; }
         #test_img { display: none; }
-        .bgimg { display: none; background-image: url(http://data-gov.tw.rpi.edu/w/images/thumb/b/b1/State-lib-sum.png/180px-State-lib-sum.png);  }
+        .bgimg { display: none; background-image: url(http://localhost:8080/test-image-2.jpg);  }
         #actions li {
             line-height: 2em;
         }
@@ -409,7 +429,7 @@
     </div>
 
     <!-- this is the test image, it needs to in a CORS enabled domain -->
-    <img id="test_img" src="http://data-gov.tw.rpi.edu/w/images/thumb/b/b1/State-lib-sum.png/120px-State-lib-sum.png">
+    <img id="test_img" src="http://localhost:8080/test-image.png">
     <!-- this is the test div, it needs to in a CORS enabled domain -->
     <div id="test_div" class="bgimg">&nbsp;</div>
     <br/>

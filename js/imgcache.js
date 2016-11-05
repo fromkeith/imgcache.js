@@ -583,6 +583,14 @@ var ImgCache = {
                 lruChanged = null;
             }, 100);
         }
+        lru.clear = function () {
+            delete window.localStorage['imagecache.js.lru'];
+            lru.data = {
+                files: {},
+                size: 0,
+                version: 1
+            };
+        };
         lru.use = function (what) {
             if (what === undefined) {
                 return;
@@ -738,6 +746,7 @@ var ImgCache = {
     ImgCache.cacheFile = function (img_src, success_callback, error_callback, on_progress) {
 
         if (!Private.isImgCacheLoaded() || !img_src) {
+            console.log('cahce not loaded');
             return;
         }
         if (ImgCache.attributes.lru) {
@@ -779,6 +788,7 @@ var ImgCache = {
                         // 1=NO backup oddly enough..
                     );
                 }
+                console.log('set', img_src, filePath);
 
                 if (success_callback) { success_callback(); }
             },
@@ -816,6 +826,7 @@ var ImgCache = {
                     path = path.substr(7);
                 }
             }
+            console.log('find', img_src, path);
 
             // try to get the file entry: if it fails, there's no such file in the cache
             ImgCache.attributes.filesystem.root.getFile(
