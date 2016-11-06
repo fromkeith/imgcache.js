@@ -294,7 +294,6 @@
                 {
                     name: 'cacheAlot',
                     test: function (ok, nok) {
-                        console.log('----------cacheAlot---------');
                         var uris = [];
                         var img_src = getBackgroundImageUrl($test_div);
                         for (i = 0; i < 100; i++) {
@@ -304,7 +303,6 @@
                         uris.forEach(function (uri) {
                             waitFor.push(
                                 new Promise(function (resolve, reject) {
-                                    console.log('cache', uri);
                                     ImgCache.cacheFile(uri, resolve, reject);
                                 })
                             );
