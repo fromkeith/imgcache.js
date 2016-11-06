@@ -124,25 +124,21 @@
                 {
                     name: 'cacheFile',
                     test: function (ok, nok) {
-                        console.log('test-cacheFile');
                         ImgCache.cacheFile($test_img.attr('src'), ok, nok);
                     }
                 },
                 {
                     name: 'cacheBackground',
                     test: function (ok, nok) {
-                        console.log('test-cacheBackground');
                         ImgCache.cacheBackground(getAppropriateElement($test_div), ok, nok);
                     }
                 },
                 {
                     name: 'isCached',
                     test: function (ok, nok) {
-                        console.log('test-isCached');
                         var img_src = getBackgroundImageUrl($test_div);
                         if (img_src) {
                             ImgCache.isCached(img_src, function (src, res) {
-                                console.log('test-isCached', img_src, src, res);
                                 if (res) {
                                     ok();
                                 } else {
@@ -287,6 +283,74 @@
                         } else {
                             nok();
                         }
+                    }
+                },
+                {
+                    name: 'clearCache',
+                    test: function (ok, nok) {
+                        ImgCache.clearCache(ok, nok);
+                    }
+                },
+                {
+                    name: 'cacheAlot',
+                    test: function (ok, nok) {
+                        console.log('----------cacheAlot---------');
+                        var uris = [];
+                        var img_src = getBackgroundImageUrl($test_div);
+                        for (i = 0; i < 100; i++) {
+                            uris.push(img_src + "?" + Math.random())
+                        }
+                        var waitFor = [];
+                        uris.forEach(function (uri) {
+                            waitFor.push(
+                                new Promise(function (resolve, reject) {
+                                    console.log('cache', uri);
+                                    ImgCache.cacheFile(uri, resolve, reject);
+                                })
+                            );
+                        });
+                        Promise.all(waitFor)
+                            .then(function () {
+                                // give time for file operations to finish
+                                return new Promise(function (resolve, reject) {
+                                    setTimeout(function () {
+                                        resolve();
+                                    }, 1000);
+                                });
+                            })
+                            .then(function () {
+                                var checkCache = [];
+                                uris.forEach(function (uri, index) {
+                                    checkCache.push(
+                                        new Promise(function (resolve, reject) {
+                                            ImgCache.isCached(uri, function (src, isCached) {
+                                                if (!ImgCache.options.useLru) {
+                                                    if (!isCached) {
+                                                        logger("expected file to be cached", LOG_LEVEL_ERROR);
+                                                        reject();
+                                                        return;
+                                                    }
+                                                    resolve();
+                                                    return;
+                                                }
+                                                if ((index < 92 && !isCached) || (isCached && index >= 92)) {
+                                                    resolve();
+                                                    return;
+                                                }
+                                                logger("expected index" + index + "to have difference cache state", LOG_LEVEL_ERROR);
+                                                reject();
+                                                return;
+                                            });
+                                        })
+                                    );
+                                });
+                                return Promise.all(checkCache);
+                            })
+                            .then(function () {
+                                ok();
+                            }, function () {
+                                nok();
+                            });
                     }
                 },
                 {

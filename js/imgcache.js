@@ -473,9 +473,6 @@ var ImgCache = {
         if (!$element) {
             return;
         }
-        if (ImgCache.attributes.lru) {
-            ImgCache.attributes.lru.use(img_src);
-        }
 
         var filename = Helpers.URIGetFileName(img_src);
 
@@ -506,6 +503,9 @@ var ImgCache = {
                         set_path_callback($element, base64content, img_src);
                         ImgCache.overridables.log('File ' + filename + ' loaded from cache', LOG_LEVEL_INFO);
                         if (success_callback) { success_callback($element); }
+                        if (ImgCache.attributes.lru) {
+                            ImgCache.attributes.lru.use(img_src);
+                        }
                     };
                     reader.readAsDataURL(file);
                 };
@@ -521,6 +521,9 @@ var ImgCache = {
                 set_path_callback($element, new_url, img_src);
                 ImgCache.overridables.log('File ' + filename + ' loaded from cache', LOG_LEVEL_INFO);
                 if (success_callback) { success_callback($element); }
+                if (ImgCache.attributes.lru) {
+                    ImgCache.attributes.lru.use(img_src);
+                }
             }
         };
         // if file does not exist in cache, cache it now!
@@ -620,11 +623,11 @@ var ImgCache = {
                 // pop, remove the file and save the lru
                 var i;
                 for (i = 0; i < ImgCache.options.maxLruSize / 4; i++) {
-                    ImgCache.removeFile(lru.pop());
+                    let toRemove = lru.pop();
+                    ImgCache.removeFile(toRemove);
                 }
-            } else {
-                saveLru();
             }
+            saveLru();
         };
         lru.remove = function (what) {
             if (lru.data.files[what] === undefined) {
@@ -642,6 +645,7 @@ var ImgCache = {
             if (lru.data.tail === undefined) {
                 return undefined;
             }
+
             lru.data.size --;
             var toRet = lru.data.tail;
             splitOutNode(toRet);
@@ -746,11 +750,7 @@ var ImgCache = {
     ImgCache.cacheFile = function (img_src, success_callback, error_callback, on_progress) {
 
         if (!Private.isImgCacheLoaded() || !img_src) {
-            console.log('cahce not loaded');
             return;
-        }
-        if (ImgCache.attributes.lru) {
-            ImgCache.attributes.lru.use(img_src);
         }
 
         img_src = Helpers.sanitizeURI(img_src);
@@ -768,6 +768,9 @@ var ImgCache = {
                         Private.setCurrentSize(ImgCache.getCurrentSize() + parseInt(metadata.size, 10));
                     } else {
                         ImgCache.overridables.log('No metadata size property available', LOG_LEVEL_INFO);
+                    }
+                    if (ImgCache.attributes.lru) {
+                        ImgCache.attributes.lru.use(img_src);
                     }
                 });
                 ImgCache.overridables.log('Download complete: ' + Helpers.EntryGetPath(entry), LOG_LEVEL_INFO);
@@ -788,7 +791,6 @@ var ImgCache = {
                         // 1=NO backup oddly enough..
                     );
                 }
-                console.log('set', img_src, filePath);
 
                 if (success_callback) { success_callback(); }
             },
@@ -812,9 +814,6 @@ var ImgCache = {
             if (!Private.isImgCacheLoaded() || !response_callback) {
                 return;
             }
-            if (ImgCache.attributes.lru) {
-                ImgCache.attributes.lru.use(img_src);
-            }
 
             img_src = Helpers.sanitizeURI(img_src);
 
@@ -826,13 +825,17 @@ var ImgCache = {
                     path = path.substr(7);
                 }
             }
-            console.log('find', img_src, path);
 
             // try to get the file entry: if it fails, there's no such file in the cache
             ImgCache.attributes.filesystem.root.getFile(
                 path,
                 { create: false },
-                function (file_entry) { response_callback(img_src, file_entry); },
+                function (file_entry) {
+                    if (ImgCache.attributes.lru) {
+                        ImgCache.attributes.lru.use(img_src);
+                    }
+                    response_callback(img_src, file_entry);
+                },
                 function () { response_callback(img_src, null); }
             );
         });
@@ -844,9 +847,6 @@ var ImgCache = {
             if (!entry) {
                 if (error_callback) { error_callback(img_src); }
             } else {
-                if (ImgCache.attributes.lru) {
-                    ImgCache.attributes.lru.use(img_src);
-                }
                 success_callback(img_src, Helpers.EntryGetURL(entry));
             }
         };
@@ -943,13 +943,9 @@ var ImgCache = {
 
     ImgCache.removeFile = function (img_src, success_callback, error_callback) {
 
-        if (ImgCache.attributes.lru) {
-            ImgCache.attributes.lru.remove(img_src);
-        }
-
         img_src = Helpers.sanitizeURI(img_src);
 
-        var filePath = Private.getCachedFilePath(img_src);
+        var filePath = Private.getCachedFileFullPath(img_src);
         var _fail = function (error) {
             ImgCache.overridables.log('Failed to remove file due to ' + error.code, LOG_LEVEL_ERROR);
             if (error_callback) { error_callback(); }
@@ -957,6 +953,9 @@ var ImgCache = {
         ImgCache.attributes.filesystem.root.getFile(filePath, { create: false }, function (fileEntry) {
             fileEntry.remove(
                 function () {
+                    if (ImgCache.attributes.lru) {
+                        ImgCache.attributes.lru.remove(img_src);
+                    }
                     if (success_callback) { success_callback(); }
                 },
                 _fail
