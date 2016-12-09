@@ -623,7 +623,7 @@ var ImgCache = {
                 // pop, remove the file and save the lru
                 var i;
                 for (i = 0; i < ImgCache.options.maxLruSize / 4; i++) {
-                    let toRemove = lru.pop();
+                    var toRemove = lru.pop();
                     ImgCache.removeFile(toRemove);
                 }
             }
