@@ -534,28 +534,96 @@ var ImgCache = {
         ImgCache.attributes.filesystem.root.getFile(Private.getCachedFilePath(img_src), {create: false}, _gotFileEntry, _fail);
     };
 
-    Private.initLru = function () {
+    Private.initLru = function (doneLruInit) {
         var lru = {
                 data: {
                     files: {},
                     size: 0,
-                    version: 1
+                    version: 2
                     //head: undefined,
                     //tail: undefined
                 }
             };
-        function restoreLru() {
+        function fixDamagedLru(data) {
+            if (!data.head) {
+                data.files = {};
+                delete data.tail;
+                return;
+            }
+            // fix our head, tail and ordering
+            // also remove any loose nodes
+            var cur = data.head;
+            var newFilesMap = {}, newSize = 0;
+            var prev, node;
+            for (;data.files[cur];) {
+                data.tail = cur;
+                newSize++;
+                node = data.files[cur];
+                if (node.prev !== prev) {
+                    node.prev = prev;
+                }
+                newFilesMap[cur] = node;
+                prev = cur;
+                cur = node.next;
+            }
+            delete data.files[prev].next;
+            data.files = newFilesMap;
+            data.size = newSize;
+
+        }
+        function restoreLru(doneLruInit) {
             var oldLruStr = window.localStorage['imagecache.js.lru'];
             if (oldLruStr !== undefined) {
                 var parsedLruData = JSON.parse(oldLruStr);
                 if (!parsedLruData.version) {
                     ImgCache.clearCache(function (){});
-                } else {
+                } else if (parsedLruData.version === 1) {
                     lru.data = parsedLruData;
+                    lru.data.version = 2;
+                    // localStroage can run out of space, causing our old lru
+                    // to be invalid.. try to restore it the best we can
+                    fixDamagedLru(lru.data);
+                    delete window.localStorage['imagecache.js.lru'];
+                    saveLru();
+                }
+                if (doneLruInit) {
+                    doneLruInit();
+                }
+                return;
+            }
+            function errorRestoring(e) {
+                // 8 => file does not exist.
+                if (e && e.code !== 8) {
+                    ImgCache.overridables.log('Failed to restore LRU Cache: ' + e.toString(), LOG_LEVEL_ERROR);
+                }
+                if (doneLruInit) {
+                    doneLruInit();
                 }
             }
+            ImgCache.attributes.filesystem.root.getFile('.imgcache.lru', {create: false}, function (fileEntry) {
+                fileEntry.file(function (file) {
+                    var reader = new FileReader();
+                    reader.onloadend = function(e) {
+                        try {
+                            lru.data = JSON.parse(this.result);
+                        } catch (ex) {
+                            //corrupted LRU data, just reset ourselves...
+                            lru.data = {
+                                files: {},
+                                size: 0,
+                                version: 2
+                            };
+                        }
+                        if (doneLruInit) {
+                            doneLruInit();
+                        }
+                    };
+                    reader.onerror = errorRestoring;
+                    reader.readAsText(file);
+                }, errorRestoring);
+            }, errorRestoring);
         }
-        restoreLru();
+        restoreLru(doneLruInit);
         function splitOutNode(what) {
             var me = lru.data.files[what];
             if (me.prev === undefined && me.next === undefined) {
@@ -576,14 +644,44 @@ var ImgCache = {
                 lru.data.tail = me.prev;
             }
         }
-        var lruChanged  = null;
+        var lruChanged  = null, pendingLruWrites = 0, isWritingLru = false;
         function saveLru() {
+            if (isWritingLru) {
+                pendingLruWrites++;
+                return;
+            }
             if (lruChanged) {
                 clearTimeout(lruChanged);
             }
             lruChanged = setTimeout(function () {
-                window.localStorage['imagecache.js.lru'] = JSON.stringify(lru.data);
+                pendingLruWrites = 0;
+                var dataStr = JSON.stringify(lru.data);
+                isWritingLru = true;
                 lruChanged = null;
+                function done(e) {
+                    if (e) {
+                        ImgCache.overridables.log('Failed to save LRU Cache: ' + e.toString(), LOG_LEVEL_ERROR);
+                    }
+                    isWritingLru = false;
+                    if (pendingLruWrites > 0) {
+                        setTimeout(function () {
+                            saveLru();
+                        }, 80);
+                    }
+                }
+                ImgCache.attributes.filesystem.root.getFile('.imgcache.lru', { create:true }, function (fileEntry) {
+                    fileEntry.createWriter(function (writer) {
+                        writer.onerror = done;
+                        writer.onwriteend = function () {
+                            if (writer.length === 0) {
+                                writer.write(new Blob([dataStr], {type: 'text/plain'}), done);
+                                return;
+                            }
+                            done();
+                        };
+                        writer.truncate(0);
+                    }, done);
+                }, done);
             }, 100);
         }
         lru.clear = function () {
@@ -675,19 +773,23 @@ var ImgCache = {
         ImgCache.overridables.log('ImgCache initialising', LOG_LEVEL_INFO);
 
         var _checkSize = function (callback) {
-            if (ImgCache.options.useLru) {
-                ImgCache.attributes.lru = Private.initLru();
-            }
-            if (ImgCache.options.cacheClearSize > 0) {
-                var curSize = ImgCache.getCurrentSize();
-                if (curSize > (ImgCache.options.cacheClearSize * 1024 * 1024)) {
-                    ImgCache.clearCache(callback, callback);
+            var doneLruInit = function () {
+                if (ImgCache.options.cacheClearSize > 0) {
+                    var curSize = ImgCache.getCurrentSize();
+                    if (curSize > (ImgCache.options.cacheClearSize * 1024 * 1024)) {
+                        ImgCache.clearCache(callback, callback);
+                    } else {
+                        if (callback) { callback(); }
+                    }
                 } else {
                     if (callback) { callback(); }
                 }
-            } else {
-                if (callback) { callback(); }
             }
+            if (ImgCache.options.useLru) {
+                ImgCache.attributes.lru = Private.initLru(doneLruInit);
+                return;
+            }
+            doneLruInit();
         };
         var _gotFS = function (filesystem) {
             ImgCache.overridables.log('LocalFileSystem opened', LOG_LEVEL_INFO);

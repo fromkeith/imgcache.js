@@ -325,7 +325,7 @@
                                                 if (!ImgCache.options.useLru) {
                                                     if (!isCached) {
                                                         logger("expected file to be cached", LOG_LEVEL_ERROR);
-                                                        reject();
+                                                        resolve('error');
                                                         return;
                                                     }
                                                     resolve();
@@ -336,7 +336,7 @@
                                                     return;
                                                 }
                                                 logger("expected index" + index + "to have difference cache state", LOG_LEVEL_ERROR);
-                                                reject();
+                                                resolve('error');
                                                 return;
                                             });
                                         })
@@ -344,7 +344,13 @@
                                 });
                                 return Promise.all(checkCache);
                             })
-                            .then(function () {
+                            .then(function (resps) {
+                                for (let i = 0; i < resps.length; i++) {
+                                    if (resps[i] === 'error') {
+                                        nok();
+                                        return;
+                                    }
+                                }
                                 ok();
                             }, function () {
                                 nok();
@@ -355,6 +361,195 @@
                     name: 'clearCache',
                     test: function (ok, nok) {
                         ImgCache.clearCache(ok, nok);
+                    }
+                },
+                {
+                    name: 'corruptCache-1',
+                    test: function (ok, nok) {
+                        if (!ImgCache.options.useLru) {
+                            ok();
+                            return;
+                        }
+                        window.localStorage['imagecache.js.lru'] = JSON.stringify({
+                            files: {
+                                a: {
+                                    next: 'b'
+                                },
+                                b: {
+                                    next: 'c',
+                                    prev: 'a'
+                                },
+                                c: {
+                                    next: 'd',
+                                    prev: 'b'
+                                },
+                                d: {
+                                    next: 'e',
+                                    prev: 'c'
+                                }
+                            },
+                            size: 5,
+                            version: 1,
+                            head: 'a',
+                            tail: 'e'
+                        });
+                        ImgCache.init(function () {
+                            if (window.localStorage['imagecache.js.lru']) {
+                                nok('local storage should be deleted');
+                                return;
+                            }
+                            // give time for the lru to be saved.
+                            setTimeout(function () {
+                                ImgCache.attributes.filesystem.root.getFile('.imgcache.lru', {create: false}, function (fileEntry) {
+                                    fileEntry.file(function (file) {
+                                        var reader = new FileReader();
+                                        reader.onloadend = function(e) {
+                                            var data;
+                                            try {
+                                                data = JSON.parse(this.result);
+                                            } catch (ex) {
+                                                logger("bad JSON data " + this.result);
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.head !== 'a') {
+                                                logger('expected _a_ head');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.tail !== 'd') {
+                                                logger('expected _d_ tail');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.a.prev) {
+                                                logger('expected _a_ to have undefined prev');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.b.prev !== 'a') {
+                                                logger('expected _b_ to have _a_ prev');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.d.prev !== 'c') {
+                                                logger('expected _d_ to have _c_ prev');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.size !== 4) {
+                                                logger('expected size 4');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.version !== 2) {
+                                                logger('expected version 2');
+                                                nok();
+                                                return;
+                                            }
+                                            ok();
+                                        };
+                                        reader.onerror = nok;
+                                        reader.readAsText(file);
+                                    }, nok);
+                                }, nok);
+                            }, 5000);
+                        }, nok);
+                    }
+                },
+                {
+                    name: 'corruptCache-2',
+                    test: function (ok, nok) {
+                        if (!ImgCache.options.useLru) {
+                            ok();
+                            return;
+                        }
+                        window.localStorage['imagecache.js.lru'] = JSON.stringify({
+                            files: {
+                                a: {
+                                    next: 'b'
+                                },
+                                b: {
+                                    next: 'c',
+                                    prev: 'a'
+                                },
+                                d: {
+                                    next: 'e',
+                                    prev: 'c'
+                                }
+                            },
+                            size: 5,
+                            version: 1,
+                            head: 'a',
+                            tail: 'd'
+                        });
+                        ImgCache.init(function () {
+                            if (window.localStorage['imagecache.js.lru']) {
+                                nok('local storage should be deleted');
+                                return;
+                            }
+                            // give time for the lru to be saved.
+                            setTimeout(function () {
+                                ImgCache.attributes.filesystem.root.getFile('.imgcache.lru', {create: false}, function (fileEntry) {
+                                    fileEntry.file(function (file) {
+                                        var reader = new FileReader();
+                                        reader.onloadend = function(e) {
+                                            var data;
+                                            try {
+                                                data = JSON.parse(this.result);
+                                            } catch (ex) {
+                                                logger("bad JSON data " + this.result);
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.head !== 'a') {
+                                                logger('expected _a_ head');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.tail !== 'b') {
+                                                logger('expected _b_ tail');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.size !== 2) {
+                                                logger('expected size 2');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.version !== 2) {
+                                                logger('expected version 2');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.a.prev) {
+                                                logger('expected _a_ to have undefined prev');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.b.next) {
+                                                logger('expected _b_ to have undefined set as next');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.b.prev !== 'a') {
+                                                logger('expected _b_ to have _a_ set as prev');
+                                                nok();
+                                                return;
+                                            }
+                                            if (data.files.d) {
+                                                logger('expected _d_ to be undefined');
+                                                nok();
+                                                return;
+                                            }
+                                            ok();
+                                        };
+                                        reader.onerror = nok;
+                                        reader.readAsText(file);
+                                    }, nok);
+                                }, nok);
+                            }, 5000);
+                        }, nok);
                     }
                 }
             ];
