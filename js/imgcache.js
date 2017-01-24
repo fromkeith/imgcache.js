@@ -544,51 +544,15 @@ var ImgCache = {
                     //tail: undefined
                 }
             };
-        function fixDamagedLru(data) {
-            if (!data.head) {
-                data.files = {};
-                delete data.tail;
-                return;
-            }
-            // fix our head, tail and ordering
-            // also remove any loose nodes
-            var cur = data.head;
-            var newFilesMap = {}, newSize = 0;
-            var prev, node;
-            for (;data.files[cur];) {
-                data.tail = cur;
-                newSize++;
-                node = data.files[cur];
-                if (node.prev !== prev) {
-                    node.prev = prev;
-                }
-                newFilesMap[cur] = node;
-                prev = cur;
-                cur = node.next;
-            }
-            delete data.files[prev].next;
-            data.files = newFilesMap;
-            data.size = newSize;
-
-        }
         function restoreLru(doneLruInit) {
             var oldLruStr = window.localStorage['imagecache.js.lru'];
             if (oldLruStr !== undefined) {
-                var parsedLruData = JSON.parse(oldLruStr);
-                if (!parsedLruData.version) {
-                    ImgCache.clearCache(function (){});
-                } else if (parsedLruData.version === 1) {
-                    lru.data = parsedLruData;
-                    lru.data.version = 2;
-                    // localStroage can run out of space, causing our old lru
-                    // to be invalid.. try to restore it the best we can
-                    fixDamagedLru(lru.data);
-                    delete window.localStorage['imagecache.js.lru'];
-                    saveLru();
-                }
-                if (doneLruInit) {
+                delete window.localStorage['imagecache.js.lru'];
+                ImgCache.clearCache(function () {
                     doneLruInit();
-                }
+                }, function () {
+                    doneLruInit();
+                });
                 return;
             }
             function errorRestoring(e) {
