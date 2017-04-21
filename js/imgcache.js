@@ -426,32 +426,41 @@ var ImgCache = {
                 error_callback({code: 0, source: uri, target: localPath});
             }
         };
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', uri, true);
-        if (isOnProgressAvailable) {
-            xhr.onprogress = on_progress;
-        }
-        xhr.responseType = 'blob';
-        for (var key in headers) {
-            xhr.setRequestHeader(key, headers[key]);
-        }
-        xhr.onload = function () {
-            if (xhr.response && (xhr.status === 200 || xhr.status === 0)) {
-                filesystem.root.getFile(localPath, { create:true }, function (fileEntry) {
-                    fileEntry.createWriter(function (writer) {
-                        writer.onerror = error_callback;
-                        writer.onwriteend = function () { success_callback(fileEntry);  };
-                        writer.write(xhr.response, error_callback);
-                    }, error_callback);
-                }, error_callback);
-            } else {
-                _fail('Image ' + uri + ' could not be downloaded - status: ' + xhr.status, 3, error_callback);
+        function doDownload(attempt) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', uri, true);
+            if (isOnProgressAvailable) {
+                xhr.onprogress = on_progress;
             }
-        };
-        xhr.onerror = function () {
-            _fail('XHR error - Image ' + uri + ' could not be downloaded - status: ' + xhr.status, 3, error_callback);
-        };
-        xhr.send();
+            xhr.responseType = 'blob';
+            for (var key in headers) {
+                xhr.setRequestHeader(key, headers[key]);
+            }
+            xhr.onload = function () {
+                if (xhr.response && xhr.status === 200) {
+                    filesystem.root.getFile(localPath, { create:true }, function (fileEntry) {
+                        fileEntry.createWriter(function (writer) {
+                            writer.onerror = error_callback;
+                            writer.onwriteend = function () { success_callback(fileEntry);  };
+                            writer.write(xhr.response, error_callback);
+                        }, error_callback);
+                    }, error_callback);
+                } else if (xhr.response && xhr.status === 0) {
+                    if (attempt > 1) {
+                        _fail('Image ' + uri + ' could not be downloaded - status: ' + xhr.status, 3, error_callback);
+                    } else {
+                        doDownload(attempt + 1);
+                    }
+                } else {
+                    _fail('Image ' + uri + ' could not be downloaded - status: ' + xhr.status, 3, error_callback);
+                }
+            };
+            xhr.onerror = function () {
+                _fail('XHR error - Image ' + uri + ' could not be downloaded - status: ' + xhr.status, 3, error_callback);
+            };
+            xhr.send();
+        }
+        doDownload(0);
     };
 
     Private.getBackgroundImageURL = function ($div) {

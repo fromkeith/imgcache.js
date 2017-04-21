@@ -25,6 +25,7 @@ Most methods are **ASYNCHRONOUS** : use callbacks if required.
 * Delays load of cached image to sequential loads don't block the main thread.
 * Fixes a bug where the size of a file entry was not detected.
 * Only tested on Android and windows' chrome.
+* Don't cache XHR requests with status != 200. Retry on status == 0.
 
 
 Using imgcache.js
